@@ -7,7 +7,9 @@ import fetch from 'node-fetch';
 export interface LinkLocalProxyOptions {
     prefix? : string;
     parser? : (key : string, value : string) => any;
-    transformUrlComponent? : (component : string) => string;
+    transformUrlComponent? : (path : string, component : string) => string;
+    transformObjectKey? : (path : string, component : string) => string;
+    transformKey? : (path : string, key : string) => string;
 }
 
 function createResolvableLinkLocal(linkLocal : LinkLocalMetadata, options? : LinkLocalProxyOptions) {
@@ -15,7 +17,8 @@ function createResolvableLinkLocal(linkLocal : LinkLocalMetadata, options? : Lin
     let storedData = {};
     let prefix = (options ? options.prefix : undefined) || '';
     let parser = (options ? options.parser : undefined) || ((k, v) => v);
-    let transformUrlComponent = (options ? options.transformUrlComponent : undefined) || (c => c);
+    let transformUrlComponent = (options ? options.transformUrlComponent : undefined) || ((p, c) => c);
+    let transformObjectKey = (options ? options.transformObjectKey : undefined) || ((p, c) => c);
 
     return proxy = new Proxy({}, {
         get(target, key : string, receiver) {
@@ -31,7 +34,7 @@ function createResolvableLinkLocal(linkLocal : LinkLocalMetadata, options? : Lin
             if (key == '$names') {
                 if (!storedData[key])
                     storedData[key] = linkLocal.get(`${prefix}/`);
-                return storedData[key].then(result => result.split(/\n/g).map(x => x.replace(/\/*$/, '')));
+                return storedData[key].then(result => result.split(/\n/g).map(x => x.replace(/\/*$/, '')).filter(x => x !== ''));
             }
 
             if (key == 'resolve') {
@@ -46,14 +49,14 @@ function createResolvableLinkLocal(linkLocal : LinkLocalMetadata, options? : Lin
 
                             return proxy.$names.then(list => {
                                 return Promise
-                                    .all(list.map(x => proxy[x].resolve().then(resolved => [x, resolved])))
+                                    .all(list.map(x => proxy[x].resolve().then(resolved => [transformObjectKey(`${prefix}/${x}`, x), resolved])))
                                     .then(set => set.reduce((pv, cv) => (pv[cv[0]] = cv[1], pv), {}))
                             });
                         })
                 ;
             }
 
-            return createResolvableLinkLocal(linkLocal, { prefix: `${prefix}/${transformUrlComponent(key)}`, parser, transformUrlComponent });
+            return createResolvableLinkLocal(linkLocal, { prefix: `${prefix}/${transformUrlComponent(`${prefix}/${key}`, key)}`, parser, transformUrlComponent });
         }
     });
 }
@@ -247,11 +250,37 @@ export class ResolvableEC2InstanceMetadata implements Resolvable<InstanceMetadat
         this._ec2 = createResolvableLinkLocal(this.linkLocal, {
             prefix: `/${VERSION}`, 
 
+            transformObjectKey(path, component) {
+                
+                let fixedKey = '';
+                let capitalize = false;
+
+                for (let i = 0, max = component.length; i < max; ++i) {
+                    let char = component[i];
+                    if (char === '-') {
+                        capitalize = true;
+                        continue;
+                    }
+
+                    if (capitalize)
+                        fixedKey += char.toUpperCase();
+                    else
+                        fixedKey += char;
+
+                    capitalize = false;
+                }
+
+                return component;
+            },
+
             /**
              * Handle transforming URL components from lowerCamelCase to lower-dash-case
              * @param component 
              */
-            transformUrlComponent(component) {
+            transformUrlComponent(path, component) {
+                if (/^\d+=/.test(component))
+                    return component.replace(/=.*/, '');
+                
                 let fixedKey = '';
                 for (let i = 0, max = component.length; i < max; ++i) {
                     let char = component[i];
@@ -260,6 +289,7 @@ export class ResolvableEC2InstanceMetadata implements Resolvable<InstanceMetadat
                     else
                         fixedKey += char;
                 }
+
                 return fixedKey;
             },
 
@@ -275,13 +305,15 @@ export class ResolvableEC2InstanceMetadata implements Resolvable<InstanceMetadat
 
                 let rules : any[] = [
                     [T_STRING_ARRAY,    `/$`],
-                    [T_JSON,            `^/${VERSION}/dynamic/instance-identity/document`],
-                    [T_INT,             `^/${VERSION}/meta-data/ami-launch-index`],
-                    [T_STRING_ARRAY,    `^/${VERSION}/meta-data/ancestor-ami-ids`],
-                    [T_JSON,            `^/${VERSION}/meta-data/events/maintenance/scheduled`],
-                    [T_JSON,            `^/${VERSION}/meta-data/events/maintenance/history`],
-                    [T_JSON,            `^/${VERSION}/meta-data/iam/info`],
+                    [T_JSON,            `^/${VERSION}/dynamic/instance-identity/document$`],
+                    [T_INT,             `^/${VERSION}/meta-data/ami-launch-index$`],
+                    [T_STRING_ARRAY,    `^/${VERSION}/meta-data/ancestor-ami-ids$`],
+                    [T_JSON,            `^/${VERSION}/meta-data/events/maintenance/scheduled$`],
+                    [T_JSON,            `^/${VERSION}/meta-data/events/maintenance/history$`],
+                    [T_JSON,            `^/${VERSION}/meta-data/iam/info$`],
                     [T_JSON,            `^/${VERSION}/meta-data/iam/security-credentials/${X}`],
+                    [T_JSON,            `^/${VERSION}/meta-data/identity-credentials/ec2/info$`],
+                    [T_JSON,            `^/${VERSION}/meta-data/identity-credentials/ec2/security-credentials$`],
                     [T_INT,             `^/${VERSION}/meta-data/network/interfaces/macs/${X}/device-number$`],
                     [T_INT,             `^/${VERSION}/meta-data/network/interfaces/macs/${X}/owner-id$`],
                     [T_STRING_ARRAY,    `^/${VERSION}/meta-data/network/interfaces/macs/${X}/local-ipv4s$`],
@@ -293,8 +325,8 @@ export class ResolvableEC2InstanceMetadata implements Resolvable<InstanceMetadat
                 ];
 
                 for (let rule of rules) {
-                    if (new RegExp(rule[0]).test(key))
-                        return rule[1](value);
+                    if (new RegExp(rule[1]).test(key)) 
+                        return rule[0](value);
                 }
 
                 return value;
@@ -359,7 +391,7 @@ export class ResolvableEC2InstanceMetadata implements Resolvable<InstanceMetadat
     }
 }
 
-const DIRECTORY = {};
+const DIRECTORY : any = {};
 
 export class LinkLocalMetadata {
     constructor(readonly ip : string = '169.254.169.254') {
@@ -368,7 +400,7 @@ export class LinkLocalMetadata {
 
     async get(path : string) {
         let url = `http://${this.ip}${path}`;
-        let response = await fetch(url, { redirect: 'manual' );
+        let response = await fetch(url, { redirect: 'manual' });
         if (response.status == 404)
             return null;
 
