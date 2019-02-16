@@ -1,4 +1,6 @@
-import { Environment } from "./src/environment";
+import { Environment } from "./environment";
+import { EC2InstanceMetadata } from "./platforms/ec2";
+import { Resolvable } from "./instance-metadata";
 
 async function main() {
     let env : Environment = new Environment();
@@ -9,7 +11,7 @@ async function main() {
         return;
     }
 
-    let result = await env.instanceMetadata.resolve();
+    let result = await (env.instanceMetadata as Resolvable<EC2InstanceMetadata>).ec2.resolve();
 
     console.log(JSON.stringify(result, undefined, 2));
 }
