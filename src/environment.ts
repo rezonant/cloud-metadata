@@ -2,6 +2,10 @@ import { Platform } from "./platform";
 import { PlatformRegistry } from "./platform-registry";
 import { InstanceMetadata, Resolvable } from "./instance-metadata";
 
+import { EC2Platform } from "./platforms/ec2";
+
+PlatformRegistry.register(new EC2Platform());
+
 export class Environment {
     constructor() {
     }
@@ -10,7 +14,10 @@ export class Environment {
     private _instanceMetadata : Resolvable<InstanceMetadata> = null;
 
     get instanceMetadata() : Resolvable<InstanceMetadata> {
-        return this._instanceMetadata;
+        if (this._instanceMetadata)
+            return this._instanceMetadata;
+
+        return this._instanceMetadata = this._platform.inspectInstance();
     }
 
     get platform() : Platform {

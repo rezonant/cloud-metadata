@@ -20,7 +20,7 @@ export type Resolvable<T> = {
 
 export function cloneAndResolve<T>(resolvable : Resolvable<T>): T {
     return <T>Object.keys(resolvable)
-        .map(k => resolvable[k].then ? resolvable[k].then(v => [k, v]) : resolvable[k])
+        .map(k => (resolvable[k] && resolvable[k].then) ? resolvable[k].then(v => [k, v]) : resolvable[k])
         .reduce((pv, cv) => (pv[cv[0]] = cv[1], pv), {})
     ;
 }

@@ -2,6 +2,8 @@ import { Platform } from "../platform";
 import { InstanceMetadata, cloneAndResolve, Resolvable, Fixture } from "../instance-metadata";
 import { Environment } from "../environment";
 
+import fetch from 'node-fetch';
+
 export interface LinkLocalProxyOptions {
     prefix? : string;
     parser? : (key : string, value : string) => any;
@@ -16,7 +18,7 @@ function createResolvableLinkLocal(linkLocal : LinkLocalMetadata, options? : Lin
     let transformUrlComponent = (options ? options.transformUrlComponent : undefined) || (c => c);
 
     return proxy = new Proxy({}, {
-        get(key : string) {
+        get(target, key : string, receiver) {
             if (storedData[key])
                 return storedData[key];
 
