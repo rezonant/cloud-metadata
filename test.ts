@@ -1,8 +1,13 @@
 import { Environment } from "./src/environment";
 
 async function main() {
-    let env : Environment;
+    let env : Environment = new Environment();
     await env.initialize();
+
+    if (!env.platform) {
+        console.log('Could not determine platform');
+        return;
+    }
 
     let result = await env.instanceMetadata.resolve();
 
