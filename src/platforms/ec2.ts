@@ -31,7 +31,7 @@ function createResolvableLinkLocal(linkLocal : LinkLocalMetadata, options? : Lin
             if (key == '$names') {
                 if (!storedData[key])
                     storedData[key] = linkLocal.get(`${prefix}/`);
-                return cb => storedData[key].then(result => cb(result.split(/\n/g)));
+                return storedData[key].then(result => result.split(/\n/g).map(x => x.replace(/\/*$/, '')));
             }
 
             if (key == 'resolve') {
@@ -41,15 +41,13 @@ function createResolvableLinkLocal(linkLocal : LinkLocalMetadata, options? : Lin
                 return () => 
                     proxy
                         .then(data => {
-                            if (data !== '')
+                            if (data !== DIRECTORY)
                                 return data;
 
-                            // This is a collection...
                             return proxy.$names.then(list => {
-                                return Promise.all(
-                                    list.map(x => proxy[x].resolve().then(resolved => [x, resolved]))
-                                        .then(set => set.reduce((pv, cv) => (pv[cv[0]] = cv[1], pv), {}))
-                                )
+                                return Promise
+                                    .all(list.map(x => proxy[x].resolve().then(resolved => [x, resolved])))
+                                    .then(set => set.reduce((pv, cv) => (pv[cv[0]] = cv[1], pv), {}))
                             });
                         })
                 ;
@@ -298,6 +296,8 @@ export class ResolvableEC2InstanceMetadata implements Resolvable<InstanceMetadat
                     if (new RegExp(rule[0]).test(key))
                         return rule[1](value);
                 }
+
+                return value;
             }
         });
     }
@@ -359,6 +359,8 @@ export class ResolvableEC2InstanceMetadata implements Resolvable<InstanceMetadat
     }
 }
 
+const DIRECTORY = {};
+
 export class LinkLocalMetadata {
     constructor(readonly ip : string = '169.254.169.254') {
 
@@ -366,9 +368,12 @@ export class LinkLocalMetadata {
 
     async get(path : string) {
         let url = `http://${this.ip}${path}`;
-        let response = await fetch(url);
+        let response = await fetch(url, { redirect: 'manual' );
         if (response.status == 404)
             return null;
+
+        if (response.status == 301)
+            return DIRECTORY;
         
         if (response.status >= 300)
             throw new LinkLocalMetadataError(`Failed to fetch link-local instance metadata from ${url}: ${response.status} ${response.statusText}`);
