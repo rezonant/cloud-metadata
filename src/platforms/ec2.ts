@@ -19,10 +19,25 @@ function createResolvableLinkLocal(linkLocal : LinkLocalMetadata, options? : Lin
 
     return proxy = new Proxy({}, {
         get(target, key : string, receiver) {
-            if (storedData[key])
-                return storedData[key];
+            if (key == '$all')
+                return proxy;
+            
+            if (key == 'then') {
+                if (!storedData[key])
+                    storedData[key] = linkLocal.get(`${prefix}`);
+                return cb => storedData[key].then(v => cb(parser(prefix, v)));
+            }
+
+            if (key == '$names') {
+                if (!storedData[key])
+                    storedData[key] = linkLocal.get(`${prefix}/`);
+                return cb => storedData[key].then(result => cb(result.split(/\n/g)));
+            }
 
             if (key == 'resolve') {
+                if (storedData[key])
+                    return storedData[key];
+
                 return () => 
                     proxy
                         .then(data => {
@@ -40,13 +55,6 @@ function createResolvableLinkLocal(linkLocal : LinkLocalMetadata, options? : Lin
                 ;
             }
 
-            if (key == 'then')
-                return (callback) => storedData[key] = linkLocal.get(`${prefix}`).then(result => callback(parser(prefix, result)));
-            if (key == '$names')
-                return storedData[key] = linkLocal.get(`${prefix}/`).then(result => result.split(/\n/g));
-            if (key == '$all')
-                return proxy;
-            
             return createResolvableLinkLocal(linkLocal, { prefix: `${prefix}/${transformUrlComponent(key)}`, parser, transformUrlComponent });
         }
     });
@@ -239,7 +247,7 @@ export class ResolvableEC2InstanceMetadata implements Resolvable<InstanceMetadat
         // in a terse, minimal implementation.
 
         this._ec2 = createResolvableLinkLocal(this.linkLocal, {
-            prefix: VERSION, 
+            prefix: `/${VERSION}`, 
 
             /**
              * Handle transforming URL components from lowerCamelCase to lower-dash-case
