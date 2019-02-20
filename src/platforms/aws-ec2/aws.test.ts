@@ -1,4 +1,4 @@
-import { EC2Platform, MockLinkLocalMetadata } from "./ec2";
+import { AmazonEC2Platform, MockLinkLocalMetadata } from "./aws";
 import { suite } from 'razmin';
 import { expect } from 'chai';
 
@@ -134,7 +134,7 @@ suite(describe => {
                 ]);
 
                 it('properly exposes various endpoints on demand', async () => {
-                    let plat = new EC2Platform({ linkLocal });
+                    let plat = new AmazonEC2Platform({ linkLocal });
                     let instance = plat.inspectInstance();
                     expect((await instance.ec2.dynamic.instanceIdentity.document).instanceId).to.eq('i-00000000000000');
                     expect((await instance.ec2.metaData.iam.info).InstanceProfileId).to.eq('AIPAIIIAAAIIIIAIII');
@@ -144,7 +144,7 @@ suite(describe => {
                 });
 
                 it('properly resolves the entire metadata tree', async () => {
-                    let plat = new EC2Platform({ linkLocal });
+                    let plat = new AmazonEC2Platform({ linkLocal });
                     let instance = plat.inspectInstance();
                     let resolved = await instance.ec2.resolve();
 

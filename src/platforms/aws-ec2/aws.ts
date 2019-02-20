@@ -468,7 +468,7 @@ export interface EC2PlatformOptions {
     linkLocal? : LinkLocalMetadata;
 }
 
-export class EC2Platform implements Platform {
+export class AmazonEC2Platform implements Platform {
     constructor(options? : EC2PlatformOptions) {
         if (!options)
             options = {};
