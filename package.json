@@ -4,7 +4,7 @@
   "description": "a unified API for cloud instance metadata",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "npm run build && node dist/test.js",
     "build": "tsc -p ."
   },
   "repository": {
@@ -23,7 +23,10 @@
   },
   "homepage": "https://github.com/rezonant/cloud-metadata#readme",
   "devDependencies": {
+    "@types/chai": "^4.1.7",
     "@types/node": "^11.9.3",
+    "chai": "^4.2.0",
+    "razmin": "^0.5.1",
     "typescript": "^3.3.3"
   },
   "dependencies": {
