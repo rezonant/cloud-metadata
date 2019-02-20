@@ -1,6 +1,5 @@
 import { Platform } from "../platform";
-import { InstanceMetadata, cloneAndResolve, Resolvable, Fixture } from "../instance-metadata";
-import { Environment } from "../environment";
+import { InstanceMetadata, cloneAndResolve, Resolvable, Fixture, NamedCollection } from "../instance-metadata";
 
 import fetch from 'node-fetch';
 
@@ -30,33 +29,59 @@ function createResolvableLinkLocal(linkLocal : LinkLocalMetadata, options? : Lin
                     storedData[key] = linkLocal.get(`${prefix}`);
                 return cb => storedData[key].then(v => cb(parser(prefix, v)));
             }
+            
+            if (key == 'finally')
+                return cb => proxy.then(v => v).catch(e => {}).finally(() => cb());
+
+            if (key == 'catch')
+                return cb => proxy.then(v => v).catch(e => cb(e));
 
             if (key == '$names') {
                 if (!storedData[key])
                     storedData[key] = linkLocal.get(`${prefix}/`);
-                return storedData[key].then(result => result.split(/\n/g).map(x => x.replace(/\/*$/, '')).filter(x => x !== ''));
+                    
+                return storedData[key]
+                    .then(result => result.split(/\n/g).map(x => x.replace(/\/*$/, ''))
+                    .filter(x => x !== ''))
+                    .catch(e => {
+                        console.error(`Caught exception while iterating $names on '${prefix}/'`);
+                        console.error(e);
+                        throw e;
+                    })
+                ;
             }
 
             if (key == 'resolve') {
                 if (storedData[key])
                     return storedData[key];
 
-                return () => 
-                    proxy
+                return () => {
+                    return proxy
                         .then(data => {
-                            if (data !== DIRECTORY)
+                            if (data !== DIRECTORY) {
                                 return data;
+                            }
 
-                            return proxy.$names.then(list => {
+                            let promise = proxy.$names;
+
+                            return promise.then((list : string[]) => {
                                 return Promise
                                     .all(list.map(x => proxy[x].resolve().then(resolved => [transformObjectKey(`${prefix}/${x}`, x), resolved])))
                                     .then(set => set.reduce((pv, cv) => (pv[cv[0]] = cv[1], pv), {}))
+                            }).catch(e => {
+                                console.error(`Error while resolving:`);
+                                console.error(e);
+                                throw e;
                             });
                         })
-                ;
+                };
             }
 
-            return createResolvableLinkLocal(linkLocal, { prefix: `${prefix}/${transformUrlComponent(`${prefix}/${key}`, key)}`, parser, transformUrlComponent });
+            return createResolvableLinkLocal(linkLocal, {
+                prefix: `${prefix}/${transformUrlComponent(`${prefix}/${key}`, key)}`, 
+                parser, 
+                transformUrlComponent,
+                transformObjectKey });
         }
     });
 }
@@ -130,15 +155,9 @@ export interface FetcherFixture<T> extends Fixture {
     zFixture : never;
     [key : string]: T;
 }
-
-export interface EC2LinkLocalNamedCollection<T> extends Fixture {
-    $names : string[];
-    $all : FetcherFixture<T>;
-}
-
 export interface EC2LinkLocalIam extends Fixture {
     info : EC2IamInfo;
-    securityCredentials : EC2LinkLocalNamedCollection<EC2SecurityCredential>;
+    securityCredentials : NamedCollection<EC2SecurityCredential>;
 }
 
 export interface EC2LinkLocalMaintenanceEvent {
@@ -166,7 +185,7 @@ export interface EC2LinkLocalMetrics extends Fixture {
 export interface EC2LinkLocalNetworkInterface extends Fixture {
     deviceNumber : number;
     interfaceId : string;
-    ipv4Associations : EC2LinkLocalNamedCollection<string>;
+    ipv4Associations : NamedCollection<string>;
     localHostname : string;
     localIpv4s : string[];
     mac : string;
@@ -183,7 +202,7 @@ export interface EC2LinkLocalNetworkInterface extends Fixture {
 }
 
 export interface EC2LinkLocalNetworkInterfaces extends Fixture {
-    macs : EC2LinkLocalNamedCollection<EC2LinkLocalNetworkInterface>;
+    macs : NamedCollection<EC2LinkLocalNetworkInterface>;
 }
 
 export interface EC2LinkLocalNetwork extends Fixture {
@@ -203,7 +222,7 @@ export interface EC2LinkLocalMetadata extends Fixture {
     amiLaunchIndex : number;
     amiManifestPath : string;
     ancestorAmiIds : string[];
-    blockDeviceMapping : EC2LinkLocalNamedCollection<string>;
+    blockDeviceMapping : NamedCollection<string>;
     events : EC2LinkLocalEvents;
     hostname : string;
     iam : EC2LinkLocalIam;
@@ -220,7 +239,7 @@ export interface EC2LinkLocalMetadata extends Fixture {
     profile : string;
     publicHostname : string;
     publicIpv4 : string;
-    publicKeys : EC2LinkLocalNamedCollection<EC2LinkLocalPublicKey>;
+    publicKeys : NamedCollection<EC2LinkLocalPublicKey>;
     reservationId : string;
     securityGroups : string[];
 }
@@ -251,6 +270,8 @@ export class ResolvableEC2InstanceMetadata implements Resolvable<InstanceMetadat
             prefix: `/${VERSION}`, 
 
             transformObjectKey(path, component) {
+                if (component.includes('=') || component.includes(':') || component.includes('.'))
+                    return component;
                 
                 let fixedKey = '';
                 let capitalize = false;
@@ -270,7 +291,7 @@ export class ResolvableEC2InstanceMetadata implements Resolvable<InstanceMetadat
                     capitalize = false;
                 }
 
-                return component;
+                return fixedKey;
             },
 
             /**
@@ -301,7 +322,15 @@ export class ResolvableEC2InstanceMetadata implements Resolvable<InstanceMetadat
             parser(key, value) {
                 let T_STRING_ARRAY = v => v.split(/\n/g);
                 let T_INT = v => parseInt(v);
-                let T_JSON = v => JSON.parse(v);
+                let T_JSON = v => {
+                    try {
+                        return JSON.parse(v);
+                    } catch (e) {
+                        console.error(`Failed to parse JSON while reading key ${key}: ${e.message}. Value being parsed was: '${v}'`);
+                        console.error(`Value:`);
+                        console.dir(v);
+                    }
+                }
 
                 let rules : any[] = [
                     [T_STRING_ARRAY,    `/$`],
@@ -313,7 +342,7 @@ export class ResolvableEC2InstanceMetadata implements Resolvable<InstanceMetadat
                     [T_JSON,            `^/${VERSION}/meta-data/iam/info$`],
                     [T_JSON,            `^/${VERSION}/meta-data/iam/security-credentials/${X}`],
                     [T_JSON,            `^/${VERSION}/meta-data/identity-credentials/ec2/info$`],
-                    [T_JSON,            `^/${VERSION}/meta-data/identity-credentials/ec2/security-credentials$`],
+                    [T_JSON,            `^/${VERSION}/meta-data/identity-credentials/ec2/security-credentials/[^/]+$`],
                     [T_INT,             `^/${VERSION}/meta-data/network/interfaces/macs/${X}/device-number$`],
                     [T_INT,             `^/${VERSION}/meta-data/network/interfaces/macs/${X}/owner-id$`],
                     [T_STRING_ARRAY,    `^/${VERSION}/meta-data/network/interfaces/macs/${X}/local-ipv4s$`],
@@ -325,8 +354,10 @@ export class ResolvableEC2InstanceMetadata implements Resolvable<InstanceMetadat
                 ];
 
                 for (let rule of rules) {
-                    if (new RegExp(rule[1]).test(key)) 
-                        return rule[0](value);
+                    if (new RegExp(rule[1]).test(key)) {
+                        let parsedContent = rule[0](value);
+                        return parsedContent;
+                    }
                 }
 
                 return value;
@@ -393,6 +424,25 @@ export class ResolvableEC2InstanceMetadata implements Resolvable<InstanceMetadat
 
 const DIRECTORY : any = {};
 
+export class MockLinkLocalMetadata {
+    static create(map : string[][]) : LinkLocalMetadata {
+        return <LinkLocalMetadata>{
+            async get(path : string) {
+                for (let item of map) {
+                    let regex = new RegExp(item[0]);
+
+                    if (regex.test(path)) 
+                        return item[1];
+
+                    if (!path.endsWith('/') && regex.test(`${path}/`))
+                        return DIRECTORY;
+                }
+
+                return '';
+            }
+        }
+    }
+}
 export class LinkLocalMetadata {
     constructor(readonly ip : string = '169.254.169.254') {
 
@@ -414,12 +464,22 @@ export class LinkLocalMetadata {
     }
 }
 
-export class EC2Platform implements Platform {
-    constructor() {
+export interface EC2PlatformOptions {
+    linkLocal? : LinkLocalMetadata;
+}
 
+export class EC2Platform implements Platform {
+    constructor(options? : EC2PlatformOptions) {
+        if (!options)
+            options = {};
+        
+        if (options.linkLocal)
+            this.linkLocal = options.linkLocal;
+        else
+            this.linkLocal = new LinkLocalMetadata();
     }
 
-    private linkLocal : LinkLocalMetadata = new LinkLocalMetadata();
+    private linkLocal : LinkLocalMetadata;
     readonly id: string = 'aws/ec2';
     readonly name: string = 'Amazon EC2';
 

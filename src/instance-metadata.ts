@@ -14,8 +14,18 @@ export interface Fixture {
     zFixture : never;
 }
 
+export interface NamedCollection<T> {
+    [key : string]: T;
+    zCollection: never;
+}
+
+export interface ResolvableNamedCollection<CollectionT> extends Fixture {
+    $names : string[];
+    $all : CollectionT;
+}
+
 export type Resolvable<T> = {
-    [P in keyof T]: (T[P] extends Fixture ? Resolvable<T[P]> : Promise<T[P]>);
+    [P in keyof T]: (T[P] extends NamedCollection<any> ? ResolvableNamedCollection<T[P]> : T[P] extends Fixture ? Resolvable<T[P]> : Promise<T[P]>);
 } & { resolve() : Promise<T>; };
 
 export function cloneAndResolve<T>(resolvable : Resolvable<T>): T {
