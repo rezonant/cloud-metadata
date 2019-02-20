@@ -1,10 +1,4 @@
-import { Platform } from "./platform";
-import { PlatformRegistry } from "./platform-registry";
-import { InstanceMetadata, Resolvable } from "./instance-metadata";
-
-import { EC2Platform } from "./platforms/ec2";
-
-PlatformRegistry.register(new EC2Platform());
+import { Platform, PlatformRegistry, InstanceMetadata, Resolvable } from "./platforms";
 
 export class Environment {
     constructor() {
