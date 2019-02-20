@@ -1,5 +1,5 @@
 
-class PlatformRegistrationError extends Error {
+export class PlatformRegistrationError extends Error {
     constructor(message : string) {
         super(message);
     }

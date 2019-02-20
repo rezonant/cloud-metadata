@@ -1,4 +1,5 @@
 import { Platform } from "./platform";
+import { PlatformRegistrationError } from "./errors";
 
 export interface PlatformRegistryEntry {
     id : string;
